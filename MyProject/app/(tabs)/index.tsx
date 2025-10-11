@@ -1,6 +1,4 @@
-import { Platform, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { Platform, StyleSheet, TouchableOpacity, Alert, View, Text } from 'react-native';
 import { Link, useRouter } from 'expo-router';
 
 export default function HomeScreen() {
@@ -16,36 +14,36 @@ export default function HomeScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
+    <View style={styles.container}>
       {/* Header */}
-      <ThemedView style={styles.headerContainer}>
-        <ThemedText type="title" style={styles.appTitle}>HANGHUB</ThemedText>
-        <ThemedText style={styles.subtitle}>The future of hangout planning</ThemedText>
-      </ThemedView>
+      <View style={styles.headerContainer}>
+        <Text style={styles.appTitle}>HANGHUB</Text>
+        <Text style={styles.subtitle}>The future of hangout planning</Text>
+      </View>
 
       {/* Action Buttons */}
-      <ThemedView style={styles.actionContainer}>
+      <View style={styles.actionContainer}>
         <TouchableOpacity style={styles.primaryButton} onPress={handleCreateHangout}>
-          <ThemedText style={styles.primaryButtonText}>CREATE SESSION</ThemedText>
-          <ThemedText style={styles.buttonSubtext}>Start something new</ThemedText>
+          <Text style={styles.primaryButtonText}>CREATE SESSION</Text>
+          <Text style={styles.buttonSubtext}>Start something new</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.secondaryButton} onPress={handleJoinHangout}>
-          <ThemedText style={styles.secondaryButtonText}>JOIN SESSION</ThemedText>
+          <Text style={styles.secondaryButtonText}>JOIN SESSION</Text>
         </TouchableOpacity>
-      </ThemedView>
+      </View>
 
       {/* How it Works */}
-      <ThemedView style={styles.howItWorksContainer}>
-        <ThemedText style={styles.sectionTitle}>HOW IT WORKS</ThemedText>
-        <ThemedView style={styles.stepContainer}>
-          <ThemedText style={styles.step}>Create session & invite friends</ThemedText>
-          <ThemedText style={styles.step}>Swipe through activity suggestions</ThemedText>
-          <ThemedText style={styles.step}>Match on what everyone likes</ThemedText>
-          <ThemedText style={styles.step}>Make it happen</ThemedText>
-        </ThemedView>
-      </ThemedView>
-    </ThemedView>
+      <View style={styles.howItWorksContainer}>
+        <Text style={styles.sectionTitle}>HOW IT WORKS</Text>
+        <View style={styles.stepContainer}>
+          <Text style={styles.step}>Create session & invite friends</Text>
+          <Text style={styles.step}>Swipe through activity suggestions</Text>
+          <Text style={styles.step}>Match on what everyone likes</Text>
+          <Text style={styles.step}>Make it happen</Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
