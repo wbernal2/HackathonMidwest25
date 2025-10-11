@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import RoomAPI from '../services/RoomAPI';
+import Constants from 'expo-constants';
 
 export default function CreateSessionScreen() {
   const router = useRouter();
@@ -15,8 +15,27 @@ export default function CreateSessionScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [groupSize, setGroupSize] = useState('4');
-  const [hostName, setHostName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
+  const [locationInput, setLocationInput] = useState('');
+  const [suggestions, setSuggestions] = useState<Array<any>>([]);
+  const [suggestionsVisible, setSuggestionsVisible] = useState(false);
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false);
+  const [debounceMs] = useState(300);
+  const [autocompleteError, setAutocompleteError] = useState<string | null>(null);
+
+  // Debug: log which expo config fields are available and a masked key for troubleshooting
+  React.useEffect(() => {
+    try {
+      const m = (Constants as any).manifest;
+      const e = (Constants as any).expoConfig;
+      const extra = m?.extra || e?.extra || {};
+      const key = extra?.GOOGLE_PLACES_API_KEY || extra?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || process.env.GOOGLE_PLACES_API_KEY || process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY || '';
+      const masked = key ? `${key.slice(0, 6)}...(${key.length})` : '<missing>';
+      console.log('[CreateSession] expo.manifest.extra present?', Boolean(m?.extra), 'expo.expoConfig.extra present?', Boolean(e?.extra));
+      console.log('[CreateSession] GOOGLE_PLACES_API_KEY (masked):', masked);
+    } catch (err) {
+      console.warn('[CreateSession] Failed to inspect Constants', err);
+    }
+  }, []);
 
   const handleDateChange = (event: any, date?: Date) => {
     // For iOS (spinner) we update the pendingDate and wait for the user to press Done.
@@ -126,6 +145,77 @@ export default function CreateSessionScreen() {
     }
   };
 
+  // Debounced autocomplete effect: query Google Places Autocomplete web API
+  React.useEffect(() => {
+    if (!locationInput || locationInput.trim().length === 0) {
+      setSuggestions([]);
+      setAutocompleteLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
+
+    const timer = setTimeout(async () => {
+      const GOOGLE_KEY =
+        Constants.manifest?.extra?.GOOGLE_PLACES_API_KEY ||
+        (Constants.expoConfig && Constants.expoConfig.extra && Constants.expoConfig.extra.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY) ||
+        process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
+        '';
+
+      if (!GOOGLE_KEY || GOOGLE_KEY === '<YOUR_KEY>') {
+        // no key; do not attempt an API call
+        setSuggestions([]);
+        setAutocompleteLoading(false);
+        setAutocompleteError('Google Places API key missing; suggestions are disabled.');
+        return;
+      }
+      setAutocompleteError(null);
+
+      setAutocompleteLoading(true);
+      try {
+        const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(
+          locationInput
+        )}&types=geocode&language=en&key=${encodeURIComponent(GOOGLE_KEY)}`;
+
+        const res = await fetch(url, { signal: controller.signal });
+        const json = await res.json();
+
+        if (cancelled) return;
+
+        if (json) {
+          if (json.status && json.status !== 'OK') {
+            // Google may return NO_RESULTS, OVER_QUERY_LIMIT, REQUEST_DENIED, INVALID_REQUEST
+            setAutocompleteError(`Places API: ${json.status} - ${json.error_message ?? ''}`.trim());
+            setSuggestions([]);
+          } else if (Array.isArray(json.predictions)) {
+            setSuggestions(json.predictions.map((p: any) => ({ place_id: p.place_id, description: p.description })));
+            setAutocompleteError(null);
+          } else {
+            setSuggestions([]);
+          }
+        } else {
+          setSuggestions([]);
+        }
+      } catch (err) {
+        if ((err as any).name === 'AbortError') {
+          // aborted
+        } else {
+          console.warn('Places autocomplete failed', err);
+        }
+        if (!cancelled) setSuggestions([]);
+      } finally {
+        if (!cancelled) setAutocompleteLoading(false);
+      }
+    }, debounceMs);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [locationInput, debounceMs]);
+
   return (
     <>
       <ScrollView style={styles.container}>
@@ -158,13 +248,70 @@ export default function CreateSessionScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Location</Text>
+
               <TextInput
                 style={styles.input}
-                value={location}
-                onChangeText={setLocation}
+                value={locationInput || location}
+                onChangeText={(text) => {
+                  setLocationInput(text);
+                  setSuggestionsVisible(true);
+                }}
                 placeholder="Where are you planning to meet?"
                 placeholderTextColor="#999"
               />
+              {autocompleteError ? (
+                <Text style={styles.autocompleteError}>{autocompleteError}</Text>
+              ) : null}
+              {suggestionsVisible && suggestions.length > 0 && (
+                <View style={styles.suggestionList}>
+                  {autocompleteLoading ? (
+                    <Text style={styles.suggestionText}>Loading...</Text>
+                  ) : (
+                    suggestions.map((sugg) => (
+                      <TouchableOpacity
+                        key={sugg.place_id}
+                        style={styles.suggestionItem}
+                        onPress={async () => {
+                          // Fetch place details to get formatted address
+                          const GOOGLE_KEY =
+                            Constants.manifest?.extra?.GOOGLE_PLACES_API_KEY ||
+                            (Constants.expoConfig && Constants.expoConfig.extra && Constants.expoConfig.extra.GOOGLE_PLACES_API_KEY) ||
+                            process.env.GOOGLE_PLACES_API_KEY ||
+                            '';
+                          try {
+                            if (!GOOGLE_KEY) {
+                              // fallback to description
+                              setLocation(sugg.description ?? '');
+                            } else {
+                              const detailsRes = await fetch(
+                                `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(
+                                  sugg.place_id
+                                )}&key=${encodeURIComponent(GOOGLE_KEY)}`
+                              );
+                              const detailsJson = await detailsRes.json();
+                              if (detailsJson && detailsJson.status && detailsJson.status !== 'OK') {
+                                console.warn('Place details error', detailsJson.status, detailsJson.error_message);
+                                setLocation(sugg.description ?? '');
+                              } else {
+                                const address = detailsJson.result?.formatted_address ?? sugg.description;
+                                setLocation(address ?? '');
+                              }
+                            }
+                            setLocationInput('');
+                            setSuggestions([]);
+                            setSuggestionsVisible(false);
+                          } catch (err) {
+                            console.warn('Failed to fetch place details', err);
+                            setLocation(sugg.description ?? '');
+                          }
+                        }}
+                      >
+                        <Text style={styles.suggestionText}>{sugg.description}</Text>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
+              )}
             </View>
 
             <View style={styles.dateTimeRow}>
@@ -319,6 +466,28 @@ const styles = StyleSheet.create({
   },
   formContainer: {
     marginBottom: 32,
+  },
+  suggestionList: {
+    backgroundColor: '#fff',
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 6,
+    marginTop: 6,
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomColor: '#eee',
+    borderBottomWidth: 1,
+  },
+  suggestionText: {
+    color: '#111',
+  },
+  autocompleteError: {
+    color: '#b00020',
+    marginTop: 8,
+    fontSize: 13,
   },
   inputGroup: {
     marginBottom: 24,
