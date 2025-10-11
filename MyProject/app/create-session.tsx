@@ -37,6 +37,20 @@ export default function CreateSessionScreen() {
     }
   }, []);
 
+  // Consistent runtime key getter used throughout this component
+  const getRuntimeGoogleKey = () => {
+    const m = (Constants as any).manifest;
+    const e = (Constants as any).expoConfig;
+    const extra = m?.extra || e?.extra || {};
+    return (
+      extra?.GOOGLE_PLACES_API_KEY ||
+      extra?.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
+      process.env.GOOGLE_PLACES_API_KEY ||
+      process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY ||
+      ''
+    );
+  };
+
   const handleDateChange = (event: any, date?: Date) => {
     // For iOS (spinner) we update the pendingDate and wait for the user to press Done.
     // For Android the picker generally returns an event.type === 'set' or 'dismissed'.
@@ -120,28 +134,9 @@ export default function CreateSessionScreen() {
         groupSize: parseInt(groupSize),
         hostName: hostName.trim()
       });
-
-      if (result.success && result.roomCode) {
-        // Store room info for the hangout room screen
-        console.log('Room created successfully:', result.roomCode);
-        
-        // Navigate to hangout room with the room code
-        router.push({
-          pathname: '/hangout-room',
-          params: { 
-            roomCode: result.roomCode,
-            participantName: hostName.trim(),
-            isHost: 'true'
-          }
-        });
-      } else {
-        Alert.alert('Error', result.message || 'Failed to create room');
-      }
-    } catch (error) {
-      console.error('Error creating room:', error);
-      Alert.alert('Error', 'Network error - could not create room');
-    } finally {
-      setIsCreating(false);
+      router.push('/hangout-room');
+    } else {
+      alert('Please fill in all required fields');
     }
   };
 
