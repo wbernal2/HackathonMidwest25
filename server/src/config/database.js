@@ -6,27 +6,42 @@ let db;
 
 const connectDB = async () => {
   try {
-    client = new MongoClient(process.env.MONGODB_URI, {
-      serverApi: {
-        version: ServerApiVersion.v1,
-        strict: true,
-        deprecationErrors: true,
-      }
-    });
-    
+    const uri = process.env.MONGODB_URI;
+
+    if (!uri) {
+      console.error("MongoDB connection error: MONGODB_URI is not set.\n"
+        + "Create a .env file in the server folder with MONGODB_URI or set the environment variable.\n"
+        + "See server/.env.example for the expected format.");
+      process.exit(1);
+    }
+
+    // Basic sanity check — let mongodb driver parse it and provide useful errors if invalid
+    try {
+      client = new MongoClient(uri, {
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: true,
+          deprecationErrors: true,
+        }
+      });
+    } catch (innerErr) {
+      console.error('Invalid MONGODB_URI format:', innerErr.message);
+      process.exit(1);
+    }
+
     // Connect the client to the server
     await client.connect();
-    
+
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
     console.log("Pinged your deployment. You successfully connected to MongoDB!");
-    
+
     // Set the default database (you can change this to your preferred database name)
     db = client.db("hackathon_db");
-    
+
     return db;
   } catch (error) {
-    console.error('MongoDB connection error:', error);
+    console.error('MongoDB connection error:', error && error.message ? error.message : error);
     process.exit(1);
   }
 };
