@@ -1,36 +1,143 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
-
-// Mock data for room participants
-const mockParticipants = [
-  { id: '1', name: 'You', status: 'ready', isHost: true },
-  { id: '2', name: 'Sarah M.', status: 'joining', isHost: false },
-  { id: '3', name: 'Mike T.', status: 'ready', isHost: false },
-];
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Share, Alert } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import RoomAPI, { Room, Participant } from '../services/RoomAPI';
 
 export default function HangoutRoom() {
   const router = useRouter();
-  const [participants, setParticipants] = useState(mockParticipants);
-  const [roomCode] = useState('HG7429');
+  const params = useLocalSearchParams();
+  
+  const [room, setRoom] = useState<Room | null>(null);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [roomCode, setRoomCode] = useState('');
+  const [currentParticipant, setCurrentParticipant] = useState<Participant | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load room data when component mounts
+  useEffect(() => {
+    const loadRoom = async () => {
+      const code = params.roomCode as string;
+      const participantName = params.participantName as string;
+      
+      if (!code || !participantName) {
+        Alert.alert('Error', 'Missing room information');
+        router.push('/');
+        return;
+      }
+
+      setRoomCode(code);
+      
+      try {
+        const result = await RoomAPI.getRoomInfo(code);
+        
+        if (result.success && result.room) {
+          setRoom(result.room);
+          setParticipants(result.room.participants);
+          
+          // Find current participant
+          const participant = result.room.participants.find(p => p.name === participantName);
+          setCurrentParticipant(participant || null);
+        } else {
+          Alert.alert('Error', 'Room not found');
+          router.push('/');
+        }
+      } catch (error) {
+        console.error('Error loading room:', error);
+        Alert.alert('Error', 'Could not load room');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadRoom();
+  }, [params]);
+
+  // Set up real-time polling for room updates
+  useEffect(() => {
+    if (!roomCode) return;
+
+    let cleanup: (() => void) | undefined;
+
+    const setupPolling = async () => {
+      cleanup = await RoomAPI.pollRoomUpdates(roomCode, (updatedRoom) => {
+        setRoom(updatedRoom);
+        setParticipants(updatedRoom.participants);
+        
+        // Update current participant info
+        const participantName = params.participantName as string;
+        const participant = updatedRoom.participants.find(p => p.name === participantName);
+        setCurrentParticipant(participant || null);
+      });
+    };
+
+    setupPolling();
+
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [roomCode, params.participantName]);
 
   const handleSetPreferences = () => {
-    router.push('/set-preferences');
+    if (!currentParticipant) {
+      Alert.alert('Error', 'Participant information not found');
+      return;
+    }
+    
+    router.push({
+      pathname: '/set-preferences',
+      params: {
+        roomCode,
+        participantId: currentParticipant.id,
+        participantName: currentParticipant.name
+      }
+    });
   };
 
   const handleInviteMore = () => {
     router.push('/invite-friends');
   };
 
+  const handleShareRoomCode = async () => {
+    try {
+      await Share.share({
+        message: `Join my hangout! Use room code: ${roomCode}\n\nDownload HangHub to join the fun!`,
+        title: 'Join My Hangout',
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Could not share room code');
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Text style={styles.loadingText}>Loading room...</Text>
+      </View>
+    );
+  }
+
+  if (!room) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Text style={styles.errorText}>Room not found</Text>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.push('/')}>
+          <Text style={styles.backButtonText}>Go Home</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header Section */}
       <View style={styles.header}>
-        <Text style={styles.title}>Hangout Room</Text>
-        <View style={styles.roomCodeContainer}>
+        <Text style={styles.title}>{room.hangoutName}</Text>
+        <Text style={styles.subtitle}>{room.location}</Text>
+        <TouchableOpacity style={styles.roomCodeContainer} onPress={handleShareRoomCode}>
           <Text style={styles.roomCodeLabel}>Room Code:</Text>
           <Text style={styles.roomCode}>{roomCode}</Text>
-        </View>
+          <Text style={styles.shareHint}>Tap to share</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Participants Section */}
@@ -99,8 +206,15 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: '900',
     color: '#000000',
-    marginBottom: 15,
+    marginBottom: 5,
     letterSpacing: -1,
+  },
+  subtitle: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#666666',
+    marginBottom: 15,
+    textAlign: 'center',
   },
   roomCodeContainer: {
     backgroundColor: '#FFD700',
@@ -121,6 +235,13 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: '#000000',
     letterSpacing: 2,
+  },
+  shareHint: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#666666',
+    marginTop: 5,
+    fontStyle: 'italic',
   },
   participantsSection: {
     flex: 1,
@@ -210,5 +331,35 @@ const styles = StyleSheet.create({
     color: '#666666',
     textAlign: 'center',
     lineHeight: 22,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#666666',
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#FF4444',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    backgroundColor: '#FFD700',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#000000',
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#000000',
   },
 });

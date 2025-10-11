@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import RoomAPI from '../services/RoomAPI';
 
 export default function CreateSessionScreen() {
   const router = useRouter();
@@ -14,6 +15,8 @@ export default function CreateSessionScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [groupSize, setGroupSize] = useState('4');
+  const [hostName, setHostName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
 
   const handleDateChange = (event: any, date?: Date) => {
     // For iOS (spinner) we update the pendingDate and wait for the user to press Done.
@@ -81,18 +84,45 @@ export default function CreateSessionScreen() {
     });
   };
 
-  const handleContinue = () => {
-    if (hangoutName.trim() && location.trim()) {
-      console.log('Session created:', {
-        name: hangoutName,
-        location,
+  const handleContinue = async () => {
+    if (!hangoutName.trim() || !location.trim() || !hostName.trim()) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    setIsCreating(true);
+
+    try {
+      const result = await RoomAPI.createRoom({
+        hangoutName: hangoutName.trim(),
+        location: location.trim(),
         date: selectedDate,
         time: selectedTime,
-        groupSize
+        groupSize: parseInt(groupSize),
+        hostName: hostName.trim()
       });
-      router.push('/hangout-room');
-    } else {
-      alert('Please fill in all required fields');
+
+      if (result.success && result.roomCode) {
+        // Store room info for the hangout room screen
+        console.log('Room created successfully:', result.roomCode);
+        
+        // Navigate to hangout room with the room code
+        router.push({
+          pathname: '/hangout-room',
+          params: { 
+            roomCode: result.roomCode,
+            participantName: hostName.trim(),
+            isHost: 'true'
+          }
+        });
+      } else {
+        Alert.alert('Error', result.message || 'Failed to create room');
+      }
+    } catch (error) {
+      console.error('Error creating room:', error);
+      Alert.alert('Error', 'Network error - could not create room');
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -104,6 +134,17 @@ export default function CreateSessionScreen() {
           <Text style={styles.subtitle}>Set the foundation</Text>
 
           <View style={styles.formContainer}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Your Name</Text>
+              <TextInput
+                style={styles.input}
+                value={hostName}
+                onChangeText={setHostName}
+                placeholder="What should we call you?"
+                placeholderTextColor="#999"
+              />
+            </View>
+
             <View style={styles.inputGroup}>
               <Text style={styles.label}>Hangout Name</Text>
               <TextInput
@@ -172,8 +213,14 @@ export default function CreateSessionScreen() {
             </View>
           </View>
 
-          <TouchableOpacity style={styles.continueButton} onPress={handleContinue}>
-            <Text style={styles.continueButtonText}>Next Step</Text>
+          <TouchableOpacity 
+            style={[styles.continueButton, isCreating && styles.continueButtonDisabled]} 
+            onPress={handleContinue}
+            disabled={isCreating}
+          >
+            <Text style={[styles.continueButtonText, isCreating && styles.continueButtonTextDisabled]}>
+              {isCreating ? 'Creating Room...' : 'Create Room'}
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -349,12 +396,19 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#000000',
   },
+  continueButtonDisabled: {
+    backgroundColor: '#E0E0E0',
+    borderColor: '#CCCCCC',
+  },
   continueButtonText: {
     color: '#000000',
     fontSize: 18,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  continueButtonTextDisabled: {
+    color: '#999999',
   },
   // Modal and Picker Styles
   modalOverlay: {

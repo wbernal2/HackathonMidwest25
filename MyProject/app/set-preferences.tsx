@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import Slider from '@react-native-community/slider';
+import RoomAPI, { UserPreferences } from '../services/RoomAPI';
 
 interface PreferenceData {
   maxDistance: number;
@@ -13,6 +14,11 @@ interface PreferenceData {
 
 export default function SetPreferences() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  
+  // Get room and participant info from navigation params
+  const roomCode = params.roomCode as string;
+  const participantId = params.participantId as string;
   
   const [preferences, setPreferences] = useState<PreferenceData>({
     maxDistance: 10, // miles
@@ -22,6 +28,8 @@ export default function SetPreferences() {
     timeFlexibility: 5, // 1-10 scale
   });
 
+  const [isLoading, setIsLoading] = useState(false);
+
   const handleSliderChange = (key: keyof PreferenceData, value: number) => {
     setPreferences(prev => ({
       ...prev,
@@ -29,10 +37,41 @@ export default function SetPreferences() {
     }));
   };
 
-  const handleContinue = () => {
-    // Save preferences to storage/backend here
-    console.log('Preferences set:', preferences);
-    router.push('/activity-swipe');
+  const handleContinue = async () => {
+    if (!roomCode || !participantId) {
+      Alert.alert('Error', 'Missing room or participant information');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      // Convert preferences to match API interface
+      const userPreferences: UserPreferences = {
+        maxDistance: preferences.maxDistance,
+        budget: preferences.budget,
+        drivingWillingness: preferences.drivingWillingness,
+        groupSize: preferences.groupSize,
+        timeFlexibility: preferences.timeFlexibility,
+      };
+
+      const result = await RoomAPI.updatePreferences(roomCode, participantId, userPreferences);
+
+      if (result.success) {
+        console.log('Preferences saved successfully');
+        router.push({
+          pathname: '/activity-swipe',
+          params: { roomCode, participantId }
+        });
+      } else {
+        Alert.alert('Error', result.message || 'Failed to save preferences');
+      }
+    } catch (error) {
+      console.error('Error saving preferences:', error);
+      Alert.alert('Error', 'Failed to save preferences. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const formatBudget = (value: number) => {
@@ -78,7 +117,7 @@ export default function SetPreferences() {
               onValueChange={(value: number) => handleSliderChange('maxDistance', Math.round(value))}
               minimumTrackTintColor="#FFD700"
               maximumTrackTintColor="#E0E0E0"
-              thumbStyle={styles.sliderThumb}
+              thumbTintColor="#FFD700"
             />
             <View style={styles.sliderLabels}>
               <Text style={styles.sliderLabel}>1 mi</Text>
@@ -98,7 +137,7 @@ export default function SetPreferences() {
               onValueChange={(value: number) => handleSliderChange('budget', Math.round(value))}
               minimumTrackTintColor="#FFD700"
               maximumTrackTintColor="#E0E0E0"
-              thumbStyle={styles.sliderThumb}
+              thumbTintColor="#FFD700"
             />
             <View style={styles.sliderLabels}>
               <Text style={styles.sliderLabel}>Free</Text>
@@ -118,7 +157,7 @@ export default function SetPreferences() {
               onValueChange={(value: number) => handleSliderChange('drivingWillingness', Math.round(value))}
               minimumTrackTintColor="#FFD700"
               maximumTrackTintColor="#E0E0E0"
-              thumbStyle={styles.sliderThumb}
+              thumbTintColor="#FFD700"
             />
             <View style={styles.sliderLabels}>
               <Text style={styles.sliderLabel}>Prefer not to</Text>
@@ -138,7 +177,7 @@ export default function SetPreferences() {
               onValueChange={(value: number) => handleSliderChange('groupSize', Math.round(value))}
               minimumTrackTintColor="#FFD700"
               maximumTrackTintColor="#E0E0E0"
-              thumbStyle={styles.sliderThumb}
+              thumbTintColor="#FFD700"
             />
             <View style={styles.sliderLabels}>
               <Text style={styles.sliderLabel}>2 people</Text>
@@ -158,7 +197,7 @@ export default function SetPreferences() {
               onValueChange={(value: number) => handleSliderChange('timeFlexibility', Math.round(value))}
               minimumTrackTintColor="#FFD700"
               maximumTrackTintColor="#E0E0E0"
-              thumbStyle={styles.sliderThumb}
+              thumbTintColor="#FFD700"
             />
             <View style={styles.sliderLabels}>
               <Text style={styles.sliderLabel}>Strict schedule</Text>
@@ -172,10 +211,13 @@ export default function SetPreferences() {
       {/* Continue Button */}
       <View style={styles.footer}>
         <TouchableOpacity 
-          style={styles.continueButton}
+          style={[styles.continueButton, isLoading && styles.disabledButton]}
           onPress={handleContinue}
+          disabled={isLoading}
         >
-          <Text style={styles.continueButtonText}>Continue to Activity Swipes</Text>
+          <Text style={styles.continueButtonText}>
+            {isLoading ? 'Saving Preferences...' : 'Continue to Activity Swipes'}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -241,11 +283,7 @@ const styles = StyleSheet.create({
     height: 40,
     marginBottom: 10,
   },
-  sliderThumb: {
-    backgroundColor: '#000000',
-    width: 25,
-    height: 25,
-  },
+
   sliderLabels: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -266,6 +304,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 3,
     borderColor: '#000000',
+  },
+  disabledButton: {
+    backgroundColor: '#CCCCCC',
+    borderColor: '#999999',
   },
   continueButtonText: {
     fontSize: 20,

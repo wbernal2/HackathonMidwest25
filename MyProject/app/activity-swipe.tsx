@@ -5,9 +5,11 @@ import {
   TouchableOpacity, 
   StyleSheet, 
   Dimensions, 
-  Animated
+  Animated,
+  Alert
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import RoomAPI from '../services/RoomAPI';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -116,14 +118,52 @@ const activities: Activity[] = [
 
 export default function ActivitySwipeScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  
+  // Get room and participant info from navigation params
+  const roomCode = params.roomCode as string;
+  const participantId = params.participantId as string;
+  
   const [currentIndex, setCurrentIndex] = useState(0);
   const [likedActivities, setLikedActivities] = useState<Activity[]>([]);
   const [passedActivities, setPassedActivities] = useState<Activity[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const translateX = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
 
-    const handleSwipe = (direction: 'left' | 'right') => {
+  const submitSwipesToDatabase = async (liked: Activity[], passed: Activity[]) => {
+    if (!roomCode || !participantId) {
+      Alert.alert('Error', 'Missing room or participant information');
+      return false;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Convert activities to just their titles/IDs
+      const likedTitles = liked.map(activity => activity.title);
+      const passedTitles = passed.map(activity => activity.title);
+
+      const result = await RoomAPI.submitSwipes(roomCode, participantId, likedTitles, passedTitles);
+
+      if (result.success) {
+        console.log('Swipes submitted successfully');
+        return true;
+      } else {
+        Alert.alert('Error', result.message || 'Failed to submit swipes');
+        return false;
+      }
+    } catch (error) {
+      console.error('Error submitting swipes:', error);
+      Alert.alert('Error', 'Failed to submit swipes. Please try again.');
+      return false;
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSwipe = (direction: 'left' | 'right') => {
     if (currentIndex >= activities.length) return;
 
     const newAnimatedValue = direction === 'right' ? 300 : -300;
@@ -135,10 +175,16 @@ export default function ActivitySwipeScreen() {
     }).start(() => {
       const currentActivity = activities[currentIndex];
       
+      // Update the arrays with the current swipe
+      let updatedLiked = likedActivities;
+      let updatedPassed = passedActivities;
+      
       if (direction === 'right') {
-        setLikedActivities(prev => [...prev, currentActivity]);
+        updatedLiked = [...likedActivities, currentActivity];
+        setLikedActivities(updatedLiked);
       } else {
-        setPassedActivities(prev => [...prev, currentActivity]);
+        updatedPassed = [...passedActivities, currentActivity];
+        setPassedActivities(updatedPassed);
       }
       
       const newIndex = currentIndex + 1;
@@ -146,9 +192,15 @@ export default function ActivitySwipeScreen() {
       
       // Check if we've completed all activities
       if (newIndex >= activities.length) {
-        // Navigate to results waiting room
-        setTimeout(() => {
-          router.push('/results-waiting-room');
+        // Submit swipes to database before navigating
+        setTimeout(async () => {
+          const success = await submitSwipesToDatabase(updatedLiked, updatedPassed);
+          if (success) {
+            router.push({
+              pathname: '/results-waiting-room',
+              params: { roomCode, participantId }
+            });
+          }
         }, 1000); // Small delay to show completion message
       }
       
@@ -156,10 +208,18 @@ export default function ActivitySwipeScreen() {
     });
   };
 
-  const handleShowResults = () => {
+  const handleShowResults = async () => {
     console.log('Liked activities:', likedActivities);
     console.log('Passed activities:', passedActivities);
-    // router.push('/match-results'); // Will implement navigation later
+    
+    // Submit current swipes and navigate to results
+    const success = await submitSwipesToDatabase(likedActivities, passedActivities);
+    if (success && roomCode && participantId) {
+      router.push({
+        pathname: '/results-waiting-room',
+        params: { roomCode, participantId }
+      });
+    }
   };
 
   const handleLike = () => handleSwipe('right');

@@ -9,8 +9,7 @@ export default function HomeScreen() {
   };
 
   const handleJoinHangout = () => {
-    Alert.alert('Join Hangout', 'Enter invite code to join!');
-    // TODO: Navigate to join session screen
+    router.push('/join-room');
   };
 
   return (

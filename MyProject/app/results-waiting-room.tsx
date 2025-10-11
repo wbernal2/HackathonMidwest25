@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Dimensions, Alert, ActivityIndicator } from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import RoomAPI, { RoomStats } from '../services/RoomAPI';
 
 const { width } = Dimensions.get('window');
 
@@ -16,42 +17,58 @@ interface GroupStats {
   popularActivities: { name: string; likes: number }[];
 }
 
-// Mock group statistics data
-const mockGroupStats: GroupStats = {
-  avgDistance: 15,
-  avgBudget: 35,
-  avgDriving: 6.5,
-  avgGroupSize: 4,
-  avgTimeFlexibility: 7,
-  totalLikes: 28,
-  totalPasses: 12,
-  commonPreferences: ['Mid-range budget', 'Willing to drive', 'Flexible timing'],
-  popularActivities: [
-    { name: 'Coffee Shop', likes: 8 },
-    { name: 'Mini Golf', likes: 7 },
-    { name: 'Movies', likes: 6 },
-    { name: 'Bowling', likes: 5 },
-    { name: 'Escape Room', likes: 2 }
-  ]
-};
 
-const participants = [
-  { name: 'You', status: 'completed' },
-  { name: 'Sarah M.', status: 'completed' },
-  { name: 'Mike T.', status: 'swiping' },
-  { name: 'Alex R.', status: 'preferences' }
-];
+
+
 
 export default function ResultsWaitingRoom() {
   const router = useRouter();
+  const params = useLocalSearchParams();
+  
+  // Get room and participant info from navigation params
+  const roomCode = params.roomCode as string;
+  const participantId = params.participantId as string;
+  
   const [showStats, setShowStats] = useState(false);
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [roomStats, setRoomStats] = useState<RoomStats | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const completedCount = participants.filter(p => p.status === 'completed').length;
-  const totalCount = participants.length;
+  // Fetch room statistics
+  useEffect(() => {
+    if (!roomCode) {
+      setError('Room code not provided');
+      setIsLoading(false);
+      return;
+    }
+
+    const fetchRoomStats = async () => {
+      try {
+        const result = await RoomAPI.getRoomStats(roomCode);
+        if (result.success && result.stats) {
+          setRoomStats(result.stats);
+        } else {
+          setError(result.message || 'Failed to load room statistics');
+        }
+      } catch (error) {
+        console.error('Error fetching room stats:', error);
+        setError('Failed to load room statistics');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRoomStats();
+  }, [roomCode]);
+
+  // Calculate progress based on room stats
+  const completedCount = roomStats?.completedParticipants || 0;
+  const totalCount = roomStats?.participantCount || 0;
 
   const handleViewResults = () => {
-    router.push('/match-results');
+    // Navigate back to home after viewing results
+    router.push('/');
   };
 
   const renderProgressBar = (value: number, max: number, color: string) => (
@@ -59,6 +76,31 @@ export default function ResultsWaitingRoom() {
       <View style={[styles.progressBar, { width: `${(value / max) * 100}%`, backgroundColor: color }]} />
     </View>
   );
+
+  // Loading state
+  if (isLoading) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <ActivityIndicator size="large" color="#FFD700" />
+        <Text style={styles.loadingText}>Loading room statistics...</Text>
+      </View>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <View style={[styles.container, styles.centered]}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.push('/')}
+        >
+          <Text style={styles.backButtonText}>Back to Home</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -73,29 +115,26 @@ export default function ResultsWaitingRoom() {
           {renderProgressBar(completedCount, totalCount, '#FFD700')}
         </View>
 
-        {/* Participants Status */}
+        {/* Room Progress */}
         <View style={styles.participantsSection}>
-          <Text style={styles.sectionTitle}>Progress</Text>
-          {participants.map((participant, index) => (
-            <View key={index} style={styles.participantStatus}>
-              <Text style={styles.participantName}>{participant.name}</Text>
-              <View style={[
-                styles.statusBadge,
-                participant.status === 'completed' && styles.statusCompleted,
-                participant.status === 'swiping' && styles.statusSwiping,
-                participant.status === 'preferences' && styles.statusPreferences
-              ]}>
-                <Text style={[
-                  styles.statusText,
-                  participant.status === 'completed' && styles.statusTextCompleted
-                ]}>
-                  {participant.status === 'completed' && '✓ Done'}
-                  {participant.status === 'swiping' && '⏳ Swiping'}
-                  {participant.status === 'preferences' && '⚙️ Preferences'}
-                </Text>
-              </View>
+          <Text style={styles.sectionTitle}>Room Progress</Text>
+          <View style={styles.participantStatus}>
+            <Text style={styles.participantName}>Participants Completed</Text>
+            <View style={styles.statusBadge}>
+              <Text style={styles.statusText}>
+                {completedCount} / {totalCount}
+              </Text>
             </View>
-          ))}
+          </View>
+          <View style={styles.progressBarContainer}>
+            <View style={[
+              styles.progressBar, 
+              { 
+                width: `${totalCount > 0 ? (completedCount / totalCount) * 100 : 0}%`, 
+                backgroundColor: '#4CAF50' 
+              }
+            ]} />
+          </View>
         </View>
 
         {/* Stats Toggle */}
@@ -149,15 +188,15 @@ export default function ResultsWaitingRoom() {
                 </View>
                 <View style={styles.statRow}>
                   <Text style={styles.statLabel}>Total Activity Likes</Text>
-                  <Text style={styles.statValue}>{mockGroupStats.totalLikes}</Text>
+                  <Text style={styles.statValue}>{roomStats?.activityStats.totalLikes || 0}</Text>
                 </View>
                 <View style={styles.statRow}>
                   <Text style={styles.statLabel}>Average Budget</Text>
-                  <Text style={styles.statValue}>${mockGroupStats.avgBudget}</Text>
+                  <Text style={styles.statValue}>${Math.round(roomStats?.averagePreferences.budget || 0)}</Text>
                 </View>
                 <View style={styles.statRow}>
                   <Text style={styles.statLabel}>Max Distance</Text>
-                  <Text style={styles.statValue}>{mockGroupStats.avgDistance} mi</Text>
+                  <Text style={styles.statValue}>{Math.round(roomStats?.averagePreferences.maxDistance || 0)} mi</Text>
                 </View>
               </View>
             )}
@@ -166,7 +205,7 @@ export default function ResultsWaitingRoom() {
             {selectedTab === 'preferences' && (
               <View style={styles.tabContent}>
                 <Text style={styles.chartTitle}>Common Preferences</Text>
-                {mockGroupStats.commonPreferences.map((pref, index) => (
+                {['Budget-friendly', 'Close Distance', 'Flexible Timing'].map((pref, index) => (
                   <View key={index} style={styles.preferenceItem}>
                     <Text style={styles.preferenceText}>• {pref}</Text>
                   </View>
@@ -175,13 +214,13 @@ export default function ResultsWaitingRoom() {
                 <Text style={styles.chartTitle}>Group Averages</Text>
                 <View style={styles.chartItem}>
                   <Text style={styles.chartLabel}>Driving Willingness</Text>
-                  {renderProgressBar(mockGroupStats.avgDriving, 10, '#4CAF50')}
-                  <Text style={styles.chartValue}>{mockGroupStats.avgDriving}/10</Text>
+                  {renderProgressBar(Math.round(roomStats?.averagePreferences.drivingWillingness || 0), 10, '#4CAF50')}
+                  <Text style={styles.chartValue}>{Math.round(roomStats?.averagePreferences.drivingWillingness || 0)}/10</Text>
                 </View>
                 <View style={styles.chartItem}>
                   <Text style={styles.chartLabel}>Time Flexibility</Text>
-                  {renderProgressBar(mockGroupStats.avgTimeFlexibility, 10, '#2196F3')}
-                  <Text style={styles.chartValue}>{mockGroupStats.avgTimeFlexibility}/10</Text>
+                  {renderProgressBar(Math.round(roomStats?.averagePreferences.timeFlexibility || 0), 10, '#2196F3')}
+                  <Text style={styles.chartValue}>{Math.round(roomStats?.averagePreferences.timeFlexibility || 0)}/10</Text>
                 </View>
               </View>
             )}
@@ -190,12 +229,12 @@ export default function ResultsWaitingRoom() {
             {selectedTab === 'activities' && (
               <View style={styles.tabContent}>
                 <Text style={styles.chartTitle}>Most Popular Activities</Text>
-                {mockGroupStats.popularActivities.map((activity, index) => (
+                {Object.entries(roomStats?.activityStats.popularActivities || {}).slice(0, 5).map(([activityName, likes], index) => (
                   <View key={index} style={styles.activityItem}>
-                    <Text style={styles.activityName}>{activity.name}</Text>
+                    <Text style={styles.activityName}>{activityName}</Text>
                     <View style={styles.activityBarContainer}>
-                      {renderProgressBar(activity.likes, totalCount, '#FFD700')}
-                      <Text style={styles.activityValue}>{activity.likes}/{totalCount}</Text>
+                      {renderProgressBar(likes as number, totalCount || 1, '#FFD700')}
+                      <Text style={styles.activityValue}>{likes}/{totalCount || 1}</Text>
                     </View>
                   </View>
                 ))}
@@ -442,6 +481,38 @@ const styles = StyleSheet.create({
   },
   viewResultsButtonText: {
     fontSize: 20,
+    fontWeight: '900',
+    color: '#000000',
+    letterSpacing: -0.5,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#666666',
+    marginTop: 15,
+    textAlign: 'center',
+  },
+  errorText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#FF0000',
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    backgroundColor: '#FFD700',
+    borderRadius: 15,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    borderWidth: 3,
+    borderColor: '#000000',
+  },
+  backButtonText: {
+    fontSize: 18,
     fontWeight: '900',
     color: '#000000',
     letterSpacing: -0.5,

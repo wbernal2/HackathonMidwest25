@@ -11,12 +11,6 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Debug middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
-
 // Helper function to generate room codes
 const generateRoomCode = () => {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -81,7 +75,7 @@ app.post('/api/rooms', async (req, res) => {
       time: time ? new Date(time) : null,
       groupSize: parseInt(groupSize) || 4,
       hostName,
-      status: 'waiting',
+      status: 'waiting', // waiting, preferences, swiping, completed
       createdAt: new Date(),
       updatedAt: new Date(),
       participants: [
@@ -89,7 +83,7 @@ app.post('/api/rooms', async (req, res) => {
           id: new ObjectId().toString(),
           name: hostName,
           isHost: true,
-          status: 'ready',
+          status: 'ready', // ready, joining, preferences, swiping, completed
           joinedAt: new Date(),
           preferences: null,
           swipedActivities: []
@@ -130,14 +124,15 @@ app.post('/api/rooms', async (req, res) => {
 
 /**
  * JOIN ROOM
- * POST /api/rooms/:code/join
+ * POST /api/rooms/:roomCode/join
  * Body: { userName }
  */
-app.post('/api/rooms/:code/join', async (req, res) => {
+app.post('/api/rooms/:roomCode/join', async (req, res) => {
   try {
     const db = getDB();
     const roomsCollection = db.collection('rooms');
-    const { code } = req.params;
+    
+    const { roomCode } = req.params;
     const { userName } = req.body;
     
     if (!userName) {
@@ -147,7 +142,9 @@ app.post('/api/rooms/:code/join', async (req, res) => {
       });
     }
     
-    const room = await roomsCollection.findOne({ roomCode: code });
+    // Find room
+    const room = await roomsCollection.findOne({ roomCode: roomCode.toUpperCase() });
+    
     if (!room) {
       return res.status(404).json({
         success: false,
@@ -155,17 +152,16 @@ app.post('/api/rooms/:code/join', async (req, res) => {
       });
     }
     
-    // Check if user already exists
+    // Check if user already in room
     const existingParticipant = room.participants.find(p => p.name === userName);
     if (existingParticipant) {
-      return res.json({
-        success: true,
-        message: 'Welcome back!',
-        participant: existingParticipant
+      return res.status(400).json({
+        success: false,
+        message: 'User already in room'
       });
     }
     
-    // Create new participant
+    // Add participant
     const newParticipant = {
       id: new ObjectId().toString(),
       name: userName,
@@ -176,10 +172,9 @@ app.post('/api/rooms/:code/join', async (req, res) => {
       swipedActivities: []
     };
     
-    // Add participant to room
     await roomsCollection.updateOne(
-      { roomCode: code },
-      { 
+      { roomCode: roomCode.toUpperCase() },
+      {
         $push: { participants: newParticipant },
         $set: { updatedAt: new Date() }
       }
@@ -203,15 +198,16 @@ app.post('/api/rooms/:code/join', async (req, res) => {
 
 /**
  * GET ROOM INFO
- * GET /api/rooms/:code
+ * GET /api/rooms/:roomCode
  */
-app.get('/api/rooms/:code', async (req, res) => {
+app.get('/api/rooms/:roomCode', async (req, res) => {
   try {
     const db = getDB();
     const roomsCollection = db.collection('rooms');
-    const { code } = req.params;
     
-    const room = await roomsCollection.findOne({ roomCode: code });
+    const { roomCode } = req.params;
+    const room = await roomsCollection.findOne({ roomCode: roomCode.toUpperCase() });
+    
     if (!room) {
       return res.status(404).json({
         success: false,
@@ -236,33 +232,43 @@ app.get('/api/rooms/:code', async (req, res) => {
 
 /**
  * UPDATE PARTICIPANT PREFERENCES
- * PUT /api/rooms/:code/participants/:participantId/preferences
+ * PUT /api/rooms/:roomCode/participants/:participantId/preferences
  * Body: { maxDistance, budget, drivingWillingness, groupSize, timeFlexibility }
  */
-app.put('/api/rooms/:code/participants/:participantId/preferences', async (req, res) => {
+app.put('/api/rooms/:roomCode/participants/:participantId/preferences', async (req, res) => {
   try {
     const db = getDB();
     const roomsCollection = db.collection('rooms');
-    const { code, participantId } = req.params;
+    
+    const { roomCode, participantId } = req.params;
     const preferences = req.body;
     
-    const room = await roomsCollection.findOne({ roomCode: code });
-    if (!room) {
+    // Update participant preferences
+    const result = await roomsCollection.updateOne(
+      { 
+        roomCode: roomCode.toUpperCase(),
+        'participants.id': participantId
+      },
+      {
+        $set: {
+          'participants.$.preferences': preferences,
+          'participants.$.status': 'ready',
+          updatedAt: new Date()
+        }
+      }
+    );
+    
+    if (result.matchedCount === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Room not found'
+        message: 'Room or participant not found'
       });
     }
     
-    // Update participant preferences and room aggregate preferences
+    // Add to room-wide preferences for statistics
     await roomsCollection.updateOne(
-      { roomCode: code, 'participants.id': participantId },
-      { 
-        $set: { 
-          'participants.$.preferences': preferences,
-          'participants.$.status': 'preferences',
-          updatedAt: new Date()
-        },
+      { roomCode: roomCode.toUpperCase() },
+      {
         $push: {
           'preferences.maxDistance': preferences.maxDistance,
           'preferences.budget': preferences.budget,
@@ -289,34 +295,37 @@ app.put('/api/rooms/:code/participants/:participantId/preferences', async (req, 
 });
 
 /**
- * SUBMIT SWIPES
- * POST /api/rooms/:code/participants/:participantId/swipes
- * Body: { likedActivities: [], passedActivities: [] }
+ * SUBMIT ACTIVITY SWIPES
+ * POST /api/rooms/:roomCode/participants/:participantId/swipes
+ * Body: { likedActivities, passedActivities }
  */
-app.post('/api/rooms/:code/participants/:participantId/swipes', async (req, res) => {
+app.post('/api/rooms/:roomCode/participants/:participantId/swipes', async (req, res) => {
   try {
     const db = getDB();
     const roomsCollection = db.collection('rooms');
-    const { code, participantId } = req.params;
+    
+    const { roomCode, participantId } = req.params;
     const { likedActivities, passedActivities } = req.body;
     
-    const room = await roomsCollection.findOne({ roomCode: code });
-    if (!room) {
-      return res.status(404).json({
-        success: false,
-        message: 'Room not found'
-      });
-    }
-    
-    // Update participant swipes and room activities
+    // Update participant swipes
     await roomsCollection.updateOne(
-      { roomCode: code, 'participants.id': participantId },
       { 
-        $set: { 
+        roomCode: roomCode.toUpperCase(),
+        'participants.id': participantId
+      },
+      {
+        $set: {
           'participants.$.swipedActivities': [...likedActivities, ...passedActivities],
           'participants.$.status': 'completed',
           updatedAt: new Date()
-        },
+        }
+      }
+    );
+    
+    // Add to room-wide activity tracking
+    await roomsCollection.updateOne(
+      { roomCode: roomCode.toUpperCase() },
+      {
         $push: {
           'activities.liked': { $each: likedActivities },
           'activities.passed': { $each: passedActivities }
@@ -341,15 +350,15 @@ app.post('/api/rooms/:code/participants/:participantId/swipes', async (req, res)
 
 /**
  * GET ROOM STATISTICS
- * GET /api/rooms/:code/stats
+ * GET /api/rooms/:roomCode/stats
  */
-app.get('/api/rooms/:code/stats', async (req, res) => {
+app.get('/api/rooms/:roomCode/stats', async (req, res) => {
   try {
     const db = getDB();
     const roomsCollection = db.collection('rooms');
-    const { code } = req.params;
     
-    const room = await roomsCollection.findOne({ roomCode: code });
+    const room = await roomsCollection.findOne({ roomCode: req.params.roomCode.toUpperCase() });
+    
     if (!room) {
       return res.status(404).json({
         success: false,
@@ -358,37 +367,30 @@ app.get('/api/rooms/:code/stats', async (req, res) => {
     }
     
     // Calculate statistics
-    const participantCount = room.participants.length;
-    const completedParticipants = room.participants.filter(p => p.status === 'completed').length;
-    
-    // Calculate average preferences
-    const prefs = room.preferences;
-    const averagePreferences = {
-      maxDistance: prefs.maxDistance.length > 0 ? prefs.maxDistance.reduce((a, b) => a + b, 0) / prefs.maxDistance.length : 0,
-      budget: prefs.budget.length > 0 ? prefs.budget.reduce((a, b) => a + b, 0) / prefs.budget.length : 0,
-      drivingWillingness: prefs.drivingWillingness.length > 0 ? prefs.drivingWillingness.reduce((a, b) => a + b, 0) / prefs.drivingWillingness.length : 0,
-      groupSize: prefs.groupSize.length > 0 ? prefs.groupSize.reduce((a, b) => a + b, 0) / prefs.groupSize.length : 0,
-      timeFlexibility: prefs.timeFlexibility.length > 0 ? prefs.timeFlexibility.reduce((a, b) => a + b, 0) / prefs.timeFlexibility.length : 0
-    };
-    
-    // Calculate activity statistics
-    const totalLikes = room.activities.liked.length;
-    const totalPasses = room.activities.passed.length;
-    
-    // Count popular activities
-    const popularActivities = {};
-    room.activities.liked.forEach(activity => {
-      popularActivities[activity] = (popularActivities[activity] || 0) + 1;
-    });
-    
     const stats = {
-      participantCount,
-      completedParticipants,
-      averagePreferences,
+      participantCount: room.participants.length,
+      completedParticipants: room.participants.filter(p => p.status === 'completed').length,
+      averagePreferences: {
+        maxDistance: room.preferences.maxDistance.length > 0 
+          ? room.preferences.maxDistance.reduce((a, b) => a + b, 0) / room.preferences.maxDistance.length 
+          : 0,
+        budget: room.preferences.budget.length > 0 
+          ? room.preferences.budget.reduce((a, b) => a + b, 0) / room.preferences.budget.length 
+          : 0,
+        drivingWillingness: room.preferences.drivingWillingness.length > 0 
+          ? room.preferences.drivingWillingness.reduce((a, b) => a + b, 0) / room.preferences.drivingWillingness.length 
+          : 0,
+        groupSize: room.preferences.groupSize.length > 0 
+          ? room.preferences.groupSize.reduce((a, b) => a + b, 0) / room.preferences.groupSize.length 
+          : 0,
+        timeFlexibility: room.preferences.timeFlexibility.length > 0 
+          ? room.preferences.timeFlexibility.reduce((a, b) => a + b, 0) / room.preferences.timeFlexibility.length 
+          : 0
+      },
       activityStats: {
-        totalLikes,
-        totalPasses,
-        popularActivities
+        totalLikes: room.activities.liked.length,
+        totalPasses: room.activities.passed.length,
+        popularActivities: {} // TODO: Calculate most liked activities
       }
     };
     
