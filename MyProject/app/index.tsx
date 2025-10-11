@@ -17,7 +17,7 @@ export default function HomeScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.headerContainer}>
-        <Text style={styles.appTitle}>HANGHUB</Text>
+        <Text style={styles.appTitle}>Hango</Text>
         <Text style={styles.subtitle}>The future of hangout planning</Text>
       </View>
 
