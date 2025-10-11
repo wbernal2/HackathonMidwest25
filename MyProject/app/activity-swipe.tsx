@@ -75,6 +75,42 @@ const activities: Activity[] = [
     emoji: "🥾",
     time: "2-4 hours",
     cost: "Free"
+  },
+  {
+    id: 7,
+    title: "Karaoke Night",
+    description: "Sing your heart out with friends",
+    category: "Entertainment",
+    emoji: "🎤",
+    time: "2-3 hours",
+    cost: "$20-30"
+  },
+  {
+    id: 8,
+    title: "Food Truck Festival",
+    description: "Try diverse cuisines from local food trucks",
+    category: "Food & Drink",
+    emoji: "🚚",
+    time: "1-2 hours",
+    cost: "$15-25"
+  },
+  {
+    id: 9,
+    title: "Art Museum",
+    description: "Explore creative exhibitions and culture",
+    category: "Culture",
+    emoji: "🎨",
+    time: "2-3 hours",
+    cost: "$12-20"
+  },
+  {
+    id: 10,
+    title: "Beach Volleyball",
+    description: "Fun in the sun with competitive games",
+    category: "Sports",
+    emoji: "🏐",
+    time: "2-3 hours",
+    cost: "Free"
   }
 ];
 
@@ -87,38 +123,36 @@ export default function ActivitySwipeScreen() {
   const translateX = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(1)).current;
 
-  const handleSwipe = (direction: 'left' | 'right') => {
-    const currentActivity = activities[currentIndex];
-    
-    if (direction === 'right') {
-      setLikedActivities([...likedActivities, currentActivity]);
-    } else {
-      setPassedActivities([...passedActivities, currentActivity]);
-    }
+    const handleSwipe = (direction: 'left' | 'right') => {
+    if (currentIndex >= activities.length) return;
 
-    // Animate card out
-    Animated.parallel([
-      Animated.timing(translateX, {
-        toValue: direction === 'right' ? screenWidth : -screenWidth,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      })
-    ]).start(() => {
-      // Reset for next card
-      translateX.setValue(0);
-      opacity.setValue(1);
+    const newAnimatedValue = direction === 'right' ? 300 : -300;
+    
+    Animated.timing(translateX, {
+      toValue: newAnimatedValue,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      const currentActivity = activities[currentIndex];
       
-      if (currentIndex < activities.length - 1) {
-        setCurrentIndex(currentIndex + 1);
+      if (direction === 'right') {
+        setLikedActivities(prev => [...prev, currentActivity]);
       } else {
-        // All activities swiped, go to results
-        handleShowResults();
+        setPassedActivities(prev => [...prev, currentActivity]);
       }
+      
+      const newIndex = currentIndex + 1;
+      setCurrentIndex(newIndex);
+      
+      // Check if we've completed all activities
+      if (newIndex >= activities.length) {
+        // Navigate to results waiting room
+        setTimeout(() => {
+          router.push('/results-waiting-room');
+        }, 1000); // Small delay to show completion message
+      }
+      
+      translateX.setValue(0);
     });
   };
 
@@ -139,7 +173,8 @@ export default function ActivitySwipeScreen() {
       <View style={styles.completedContainer}>
         <Text style={styles.completedTitle}>COMPLETE</Text>
         <Text style={styles.completedSubtitle}>
-          You liked {likedActivities.length} activities
+          You swiped through all 10 activities!{'\n'}
+          Liked {likedActivities.length} • Passed {passedActivities.length}
         </Text>
         <TouchableOpacity style={styles.resultsButton} onPress={handleShowResults}>
           <Text style={styles.resultsButtonText}>View Results</Text>
@@ -154,7 +189,7 @@ export default function ActivitySwipeScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>DISCOVER</Text>
         <Text style={styles.subtitle}>
-          {remainingCount} activities remaining
+          {remainingCount} of 10 activities remaining
         </Text>
       </View>
 

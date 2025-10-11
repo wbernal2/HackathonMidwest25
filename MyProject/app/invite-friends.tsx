@@ -42,7 +42,7 @@ export default function InviteFriendsScreen() {
     }
     
     console.log('Starting hangout with:', invitedFriends);
-    // router.push('/activity-swipe'); // Will implement navigation later
+    router.push('/activity-swipe');
   };
 
   const invitedCount = friends.filter(friend => friend.invited).length;
@@ -131,7 +131,7 @@ export default function InviteFriendsScreen() {
         {/* Skip Option */}
         <TouchableOpacity 
           style={styles.skipButton} 
-          onPress={() => console.log('Skip navigation - will implement later')}
+          onPress={() => router.push('/activity-swipe')}
         >
           <Text style={styles.skipButtonText}>
             Skip for now (Plan Solo)

@@ -5,7 +5,7 @@ export default function HomeScreen() {
   const router = useRouter();
 
   const handleCreateHangout = () => {
-    router.push('/(tabs)/create-session');
+    router.push('/create-session');
   };
 
   const handleJoinHangout = () => {
@@ -25,7 +25,7 @@ export default function HomeScreen() {
       <View style={styles.actionContainer}>
         <TouchableOpacity style={styles.primaryButton} onPress={handleCreateHangout}>
           <Text style={styles.primaryButtonText}>CREATE SESSION</Text>
-          <Text style={styles.buttonSubtext}>Start something new</Text>
+          <Text style={styles.buttonSubtext}>Set up the hangout</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.secondaryButton} onPress={handleJoinHangout}>
