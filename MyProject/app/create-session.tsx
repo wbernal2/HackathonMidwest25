@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, Platform, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import RoomAPI from '../services/RoomAPI';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Constants from 'expo-constants';
 
@@ -21,6 +22,8 @@ export default function CreateSessionScreen() {
   const [autocompleteLoading, setAutocompleteLoading] = useState(false);
   const [debounceMs] = useState(300);
   const [autocompleteError, setAutocompleteError] = useState<string | null>(null);
+  const [hostName, setHostName] = useState('');
+  const [isCreating, setIsCreating] = useState(false);
 
   // Debug: log which expo config fields are available and a masked key for troubleshooting
   React.useEffect(() => {
@@ -124,19 +127,37 @@ export default function CreateSessionScreen() {
     }
 
     setIsCreating(true);
-
     try {
-      const result = await RoomAPI.createRoom({
-        hangoutName: hangoutName.trim(),
-        location: location.trim(),
-        date: selectedDate,
-        time: selectedTime,
-        groupSize: parseInt(groupSize),
-        hostName: hostName.trim()
-      });
-      router.push('/hangout-room');
-    } else {
-      alert('Please fill in all required fields');
+      // Call backend API to create the room. If it fails, show an alert.
+      if (RoomAPI && typeof RoomAPI.createRoom === 'function') {
+        const result = await RoomAPI.createRoom({
+          hangoutName: hangoutName.trim(),
+          location: location.trim(),
+          date: selectedDate,
+          time: selectedTime,
+          groupSize: parseInt(groupSize, 10),
+          hostName: hostName.trim(),
+        });
+
+        if (result && result.success) {
+          // navigate to hangout room; if roomCode present pass it
+          if (result.roomCode) {
+            router.push({ pathname: '/hangout-room', params: { roomCode: result.roomCode } as any } as any);
+          } else {
+            router.push('/hangout-room');
+          }
+        } else {
+          Alert.alert('Error', result?.message || 'Failed to create room');
+        }
+      } else {
+        // If RoomAPI is not available, fallback to navigation only
+        router.push('/hangout-room');
+      }
+    } catch (error) {
+      console.error('Error creating room:', error);
+      Alert.alert('Error', 'Network error - could not create room');
+    } finally {
+      setIsCreating(false);
     }
   };
 
