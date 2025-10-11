@@ -9,21 +9,58 @@ export default function CreateSessionScreen() {
   const [location, setLocation] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [selectedTime, setSelectedTime] = useState(new Date());
+  const [pendingDate, setPendingDate] = useState<Date | null>(null);
+  const [pendingTime, setPendingTime] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [groupSize, setGroupSize] = useState('4');
 
   const handleDateChange = (event: any, date?: Date) => {
-    setShowDatePicker(false);
+    // For iOS (spinner) we update the pendingDate and wait for the user to press Done.
+    // For Android the picker generally returns an event.type === 'set' or 'dismissed'.
+    if (Platform.OS === 'android') {
+      if (event?.type === 'dismissed') {
+        // user dismissed the native dialog
+        setShowDatePicker(false);
+        return;
+      }
+      if (event?.type === 'set') {
+        // Android dialog confirmed selection — commit immediately.
+        if (date) {
+          setSelectedDate(date);
+        }
+        setShowDatePicker(false);
+        setPendingDate(null);
+        return;
+      }
+    }
+
+    // Default behavior (iOS): store in pendingDate and wait for Done.
     if (date) {
-      setSelectedDate(date);
+      setPendingDate(date);
     }
   };
 
   const handleTimeChange = (event: any, time?: Date) => {
-    setShowTimePicker(false);
+    // Android returns event.type === 'set' or 'dismissed'. Handle accordingly.
+    if (Platform.OS === 'android') {
+      if (event?.type === 'dismissed') {
+        setShowTimePicker(false);
+        return;
+      }
+      if (event?.type === 'set') {
+        if (time) {
+          setSelectedTime(time);
+        }
+        setShowTimePicker(false);
+        setPendingTime(null);
+        return;
+      }
+    }
+
+    // iOS spinner: update pendingTime and wait for Done
     if (time) {
-      setSelectedTime(time);
+      setPendingTime(time);
     }
   };
 
@@ -94,7 +131,7 @@ export default function CreateSessionScreen() {
                 <Text style={styles.label}>Date</Text>
                 <TouchableOpacity 
                   style={styles.dateTimeButton}
-                  onPress={() => setShowDatePicker(true)}
+                  onPress={() => { setPendingDate(selectedDate); setShowDatePicker(true); }}
                 >
                   <Text style={styles.dateTimeText}>{formatDate(selectedDate)}</Text>
                 </TouchableOpacity>
@@ -104,7 +141,7 @@ export default function CreateSessionScreen() {
                 <Text style={styles.label}>Time</Text>
                 <TouchableOpacity 
                   style={styles.dateTimeButton}
-                  onPress={() => setShowTimePicker(true)}
+                  onPress={() => { setPendingTime(selectedTime); setShowTimePicker(true); }}
                 >
                   <Text style={styles.dateTimeText}>{formatTime(selectedTime)}</Text>
                 </TouchableOpacity>
@@ -148,7 +185,7 @@ export default function CreateSessionScreen() {
             <Text style={styles.pickerTitle}>Select Date</Text>
             <View style={styles.pickerWrapper}>
               <DateTimePicker
-                value={selectedDate}
+                value={pendingDate ?? selectedDate}
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={handleDateChange}
@@ -160,7 +197,13 @@ export default function CreateSessionScreen() {
             </View>
             <TouchableOpacity 
               style={styles.pickerDoneButton}
-              onPress={() => setShowDatePicker(false)}
+              onPress={() => {
+                if (pendingDate) {
+                  setSelectedDate(pendingDate);
+                  setPendingDate(null);
+                }
+                setShowDatePicker(false);
+              }}
             >
               <Text style={styles.pickerDoneText}>Done</Text>
             </TouchableOpacity>
@@ -175,7 +218,7 @@ export default function CreateSessionScreen() {
             <Text style={styles.pickerTitle}>Select Time</Text>
             <View style={styles.pickerWrapper}>
               <DateTimePicker
-                value={selectedTime}
+                value={pendingTime ?? selectedTime}
                 mode="time"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                 onChange={handleTimeChange}
@@ -186,7 +229,13 @@ export default function CreateSessionScreen() {
             </View>
             <TouchableOpacity 
               style={styles.pickerDoneButton}
-              onPress={() => setShowTimePicker(false)}
+              onPress={() => {
+                if (pendingTime) {
+                  setSelectedTime(pendingTime);
+                  setPendingTime(null);
+                }
+                setShowTimePicker(false);
+              }}
             >
               <Text style={styles.pickerDoneText}>Done</Text>
             </TouchableOpacity>
