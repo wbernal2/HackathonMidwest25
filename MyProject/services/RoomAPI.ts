@@ -1,8 +1,32 @@
 // API service for HangHub room management
-// Use your network IP for mobile testing, localhost for web
-const API_BASE_URL = __DEV__ 
-  ? (typeof window !== 'undefined' ? 'http://localhost:3000' : 'http://172.16.0.251:3000')
-  : 'http://localhost:3000';
+// For tunnel mode, we need to expose the backend through ngrok too
+const API_BASE_URL = (() => {
+  // In development
+  if (__DEV__) {
+    // Use environment variable if set (for ngrok backend)
+    if (process.env.EXPO_PUBLIC_API_URL) {
+      return process.env.EXPO_PUBLIC_API_URL;
+    }
+    
+    // Better platform detection for tunnel mode
+    // Check if we're running in a browser environment
+    const isWeb = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+    
+    // Also check for React Native specific globals
+    const isReactNative = typeof navigator !== 'undefined' && navigator.product === 'ReactNative';
+    
+    // Check for Expo specific environment
+    const isExpo = typeof global !== 'undefined' && (global as any).__expo;
+    
+    // Use ngrok URL for all platforms - works for web, mobile, and team collaboration
+    const NGROK_URL = 'https://unopportune-shoaly-sueann.ngrok-free.dev';
+    console.log('🌐 Using ngrok backend URL:', NGROK_URL);
+    return NGROK_URL;
+  }
+  
+  // Production
+  return 'https://your-production-api.com';
+})();
 
 export interface Room {
   _id: string;
@@ -72,6 +96,37 @@ export interface RoomStats {
 
 class RoomAPI {
   /**
+   * Test API connectivity
+   */
+  static async testConnection(): Promise<{ success: boolean; message: string }> {
+    try {
+      console.log('Testing connection to:', API_BASE_URL);
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      const response = await fetch(`${API_BASE_URL}/`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (response.ok) {
+        return { success: true, message: 'Connection successful' };
+      } else {
+        return { success: false, message: `Server error: ${response.status}` };
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        return { success: false, message: 'Connection timeout - server may be down' };
+      }
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { success: false, message: `Connection failed: ${errorMessage}` };
+    }
+  }
+
+  /**
    * Create a new hangout room
    */
   static async createRoom(roomData: {
@@ -83,21 +138,59 @@ class RoomAPI {
     hostName: string;
   }): Promise<{ success: boolean; roomCode?: string; roomId?: string; message?: string }> {
     try {
+      console.log('Creating room with API URL:', API_BASE_URL);
+      console.log('Room data:', roomData);
+      
+      // Test connection first
+      const connectionTest = await this.testConnection();
+      if (!connectionTest.success) {
+        return {
+          success: false,
+          message: `Server unavailable: ${connectionTest.message}`
+        };
+      }
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
       const response = await fetch(`${API_BASE_URL}/api/rooms`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(roomData),
+        signal: controller.signal,
       });
 
+      clearTimeout(timeoutId);
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server error:', errorText);
+        return {
+          success: false,
+          message: `Server error (${response.status}): ${errorText}`
+        };
+      }
+      
       const data = await response.json();
+      console.log('Response data:', data);
       return data;
     } catch (error) {
       console.error('Error creating room:', error);
+      console.error('API URL was:', API_BASE_URL);
+      
+      if (error instanceof Error && error.name === 'AbortError') {
+        return {
+          success: false,
+          message: 'Request timeout - server is taking too long to respond'
+        };
+      }
+      
       return {
         success: false,
-        message: 'Network error - could not create room'
+        message: `Network error - could not create room. Check if server is running at ${API_BASE_URL}`
       };
     }
   }
