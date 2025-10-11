@@ -61,3 +61,7 @@ web-build/
 # Temporary files
 *.tmp
 *.temp
+
+# Ignore front-end local environment file
+MyProject/.env
+MyProject/.env
